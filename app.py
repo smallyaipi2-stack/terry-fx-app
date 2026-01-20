@@ -1,95 +1,85 @@
 import streamlit as st
 import requests
+import pandas as pd
+import yfinance as yf
+from datetime import datetime, timedelta
 
 # 網頁外觀設定
-st.set_page_config(page_title="我饗國際匯率換算系統", page_icon="💰", layout="wide")
-st.title("💰 執行長專屬：全方位即時匯率換算器")
-st.write("資料來源：台灣銀行牌告匯率 (即期賣出價)")
+st.set_page_config(page_title="我饗國際匯率決策系統", page_icon="📈", layout="wide")
+st.title("📈 執行長專屬：全方位匯率監控與換算系統")
+st.write("即時資料：台灣銀行牌告匯率 | 歷史趨勢：Yahoo Finance")
 
-# 抓取台銀資料的邏輯
-@st.cache_data(ttl=600) # 每10分鐘自動更新一次
-def get_all_bot_rates():
+# 1. 抓取台銀即時資料
+@st.cache_data(ttl=600)
+def get_bot_rates():
     url = "https://rate.bot.com.tw/xrt/flcsv/0/day"
     try:
         response = requests.get(url, timeout=10)
         response.encoding = 'utf-8-sig'
         lines = response.text.split('\n')
-        
-        # 建立匯率字典，預設台幣對台幣是 1
         rates = {'台幣 (TWD)': 1.0}
-        
-        # 定義我們要抓取的幣別與其顯示名稱
-        target_map = {
-            'USD': '美金 (USD)',
-            'JPY': '日圓 (JPY)',
-            'EUR': '歐元 (EUR)',
-            'KRW': '韓元 (KRW)',
-            'CNY': '人民幣 (CNY)'
-        }
-        
+        target_map = {'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 'KRW': '韓元 (KRW)', 'CNY': '人民幣 (CNY)'}
         for line in lines:
             parts = line.split(',')
             if len(parts) < 13: continue
-            
-            currency_code = parts[0].strip()
-            # 遍歷目標幣別，只要台銀的代碼出現在其中，就抓取即期賣出價 (index 12)
-            for code, full_name in target_map.items():
-                if code in currency_code:
-                    try:
-                        rates[full_name] = float(parts[12].strip())
-                    except:
-                        rates[full_name] = None
+            code = parts[0].strip()
+            for k, v in target_map.items():
+                if k in code: rates[v] = float(parts[12].strip())
         return rates
-    except Exception as e:
-        st.error(f"連線異常：{e}")
-        return None
+    except: return None
 
-rates_dict = get_all_bot_rates()
+# 2. 抓取歷史資料的函式
+def get_history(currency_name, period):
+    # 轉換幣別代碼為 Yahoo Finance 格式
+    mapping = {'美金 (USD)': 'TWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', '韓元 (KRW)': 'KRWTWD=X', 'CNY': 'CNYTWD=X'}
+    # 備註：美金比較特別，Yahoo通常是 USD對台幣，所以我們用 TWD=X 倒推或直接用對應代碼
+    symbol_map = {
+        '美金 (USD)': 'USDTWD=X',
+        '日圓 (JPY)': 'JPYTWD=X',
+        '歐元 (EUR)': 'EURTWD=X',
+        '韓元 (KRW)': 'KRWTWD=X',
+        '人民幣 (CNY)': 'CNYTWD=X'
+    }
+    symbol = symbol_map.get(currency_name)
+    data = yf.download(symbol, period=period, interval='1d')
+    return data['Close']
+
+rates_dict = get_bot_rates()
 
 if rates_dict:
-    # 1. 匯率儀表板：橫向顯示所有幣別
+    # 頂部儀表板
     st.subheader("📊 即時匯率看板")
     cols = st.columns(len(rates_dict) - 1)
-    for i, (name, rate) in enumerate(list(rates_dict.items())[1:]): # 跳過台幣
+    for i, (name, rate) in enumerate(list(rates_dict.items())[1:]):
         with cols[i]:
             st.metric(name, f"{rate} TWD")
 
     st.divider()
 
-    # 2. 換算互動區
-    st.subheader("🔄 匯率試算")
-    
-    col_input, col_from, col_arrow, col_to = st.columns([2, 2, 1, 2])
-    
-    with col_input:
-        amount = st.number_input("輸入金額", min_value=0.0, value=100.0, step=1.0)
-        
-    with col_from:
-        from_currency = st.selectbox("從", options=list(rates_dict.keys()), index=1)
-        
-    with col_arrow:
-        st.markdown("<h2 style='text-align: center;'>➔</h2>", unsafe_allow_html=True)
-        
-    with col_to:
-        to_currency = st.selectbox("換成", options=list(rates_dict.keys()), index=0)
+    # 中間：換算與圖表並列
+    col_left, col_right = st.columns([1, 1.5])
 
-    # 換算邏輯：以台幣作為中繼站
-    # 邏輯：(金額 * 來源幣別對台幣匯率) / 目標幣別對台幣匯率
-    if st.button("執行換算", use_container_width=True):
-        from_rate = rates_dict[from_currency]
-        to_rate = rates_dict[to_currency]
+    with col_left:
+        st.subheader("🔄 快速換算")
+        amt = st.number_input("輸入金額", min_value=0.0, value=100.0)
+        from_curr = st.selectbox("從", options=list(rates_dict.keys()), index=1)
+        to_curr = st.selectbox("換成", options=list(rates_dict.keys()), index=0)
         
-        if from_rate and to_rate:
-            # 計算結果
-            result = (amount * from_rate) / to_rate
-            
-            # 顯示結果
-            st.success(f"### 換算結果：{result:,.2f} {to_currency}")
-            
-            # 補充資訊
-            st.info(f"計算邏輯：使用台銀即期賣出價進行轉換。")
-        else:
-            st.error("抱歉，目前該幣別資料有誤，無法換算。")
+        if st.button("執行換算", use_container_width=True):
+            res = (amt * rates_dict[from_curr]) / rates_dict[to_curr]
+            st.success(f"結果：{res:,.2f} {to_curr}")
+
+    with col_right:
+        st.subheader("📈 歷史趨勢分析")
+        target_curr = st.selectbox("選擇要分析的幣別", options=list(rates_dict.keys())[1:])
+        time_range = st.radio("時間範圍", ["1mo", "3mo", "6mo", "1y"], horizontal=True, index=0)
+        
+        try:
+            hist_data = get_history(target_curr, time_range)
+            st.line_chart(hist_data)
+            st.caption(f"註：以上顯示為 {target_curr} 對台幣之歷史走勢 (來源: Yahoo Finance)")
+        except:
+            st.warning("暫時無法取得歷史圖表，請稍後再試。")
 
 else:
-    st.error("無法取得即時資料，請確認網路連線或稍後再試。")
+    st.error("系統暫時無法讀取資料。")
