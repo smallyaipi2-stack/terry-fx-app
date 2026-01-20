@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # 1. 網頁基本設定 [cite: 2025-08-10]
 st.set_page_config(page_title="Terry戰情室", page_icon="📈", layout="wide")
 
-# CSS 樣式修正
+# CSS 樣式修正：確保卡片在深淺模式下皆能清晰顯示
 st.markdown("""
     <style>
     .stMetric {
@@ -31,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 資料與狀態初始化 [關鍵修正：確保第一頁能讀取第二頁數據]
+# 2. 資料與狀態初始化 [年度目標 1.4 億]
 target_total = 140000000
 
 if 'revenue_data' not in st.session_state:
@@ -40,10 +40,10 @@ if 'revenue_data' not in st.session_state:
         "業績目標 (TWD)": [round(target_total/12, 0)] * 12,
         "實際營收 (TWD)": [0] * 12
     })
-    # 預填 1 月數據 [cite: 2026-01-20]
+    # 預填目前的實績數據
     st.session_state.revenue_data.at[0, "實際營收 (TWD)"] = 3800000
 
-# 計算當前總營收 (用於連動)
+# 即時累計總營收 (連動第一頁與第二頁)
 total_actual_revenue = st.session_state.revenue_data["實際營收 (TWD)"].sum()
 
 @st.cache_data(ttl=600)
@@ -125,7 +125,7 @@ with tab_dashboard:
         st.divider()
 
         with st.expander("🚀 海外佈局：進出口損益預警", expanded=True):
-            ti, te = st.tabs(["進口採購", "外銷收益"])
+            ti, te = st.tabs(["📥 進口採購成本分析", "📤 外銷收益影響分析"])
             with ti:
                 c1, c2, c3 = st.columns(3)
                 ic = c1.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=4, key="im_c")
@@ -158,6 +158,14 @@ with tab_dashboard:
                 n = ks[i]
                 p, c = stocks_dict[n]
                 s2[i-4].metric(n, f"{p:.2f}", f"{c:+.2f}")
+        
+        # --- 本次修正：將矩陣移入第一頁的最下方 ---
+        st.divider()
+        st.subheader("📋 多幣別對照矩陣 (Cross Rates)")
+        if rates_dict:
+            mc = list(rates_dict.keys())
+            md = [[round(rates_dict[r] / rates_dict[c], 4) for c in mc] for r in mc]
+            st.dataframe(pd.DataFrame(md, index=mc, columns=mc), use_container_width=True)
 
     with col_right:
         st.subheader("🚀 願景里程碑")
@@ -166,7 +174,6 @@ with tab_dashboard:
         
         st.divider()
 
-        # 營收達標看板 [已連動至第二頁表格]
         st.subheader("🎯 營收達標看板 (目標 1.4 億)")
         st.metric("目前累計營收 (TWD)", f"{total_actual_revenue:,.0f}")
         date_input = st.text_input("數據統計截至日期", value="2026-01-20")
@@ -189,7 +196,6 @@ with tab_dashboard:
             時間進度: {expected_prog:.2%}
         </div>
         """, unsafe_allow_html=True)
-        st.caption("💡 營收金額已自動連動至「年度業績規劃」分頁。")
 
         st.divider()
         
@@ -210,7 +216,7 @@ with tab_dashboard:
 # --- 分頁二：年度業績規劃 ---
 with tab_revenue:
     st.header("📅 2026 年度業績規劃與追蹤")
-    st.write("請在此輸入各月目標與實績，第一頁戰情看板將自動同步累計數據。")
+    st.write("請在此輸入各月目標與實績，戰情看板將自動同步數據。")
     
     edited_df = st.data_editor(
         st.session_state.revenue_data, 
@@ -220,7 +226,6 @@ with tab_revenue:
         num_rows="fixed"
     )
     
-    # 即時計算達成率並更新狀態
     edited_df["達成率 (%)"] = (edited_df["實際營收 (TWD)"] / edited_df["業績目標 (TWD)"] * 100).round(2).fillna(0)
     st.session_state.revenue_data = edited_df
 
@@ -248,10 +253,3 @@ with tab_revenue:
         st.table(display_df)
         total_a = edited_df["實際營收 (TWD)"].sum()
         st.metric("年度累計營收", f"{total_a:,.0f}", f"達成率: {(total_a/target_total):.2%}")
-
-st.divider()
-st.subheader("📋 多幣別對照矩陣")
-if rates_dict:
-    mc = list(rates_dict.keys())
-    md = [[round(rates_dict[r] / rates_dict[c], 4) for c in mc] for r in mc]
-    st.dataframe(pd.DataFrame(md, index=mc, columns=mc), use_container_width=True)
