@@ -26,10 +26,12 @@ st.markdown("""
         background-color: var(--secondary-background-color);
         margin-bottom: 10px;
     }
-    .time-label {
-        font-size: 12px;
-        color: gray;
-        margin-bottom: 2px;
+    .comparison-box {
+        padding: 10px;
+        background-color: #f8fafc;
+        border-radius: 5px;
+        margin-top: 5px;
+        font-size: 13px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -137,7 +139,7 @@ with col_main:
 
     st.divider()
 
-    # 第四層：食品與零售標竿股價 (4x2 完美矩陣)
+    # 第四層：食品與零售標竿股價
     st.subheader("🏢 食品生技與零售標竿股價")
     if stocks_dict:
         keys = list(stocks_dict.keys())
@@ -166,27 +168,49 @@ with col_right:
     
     st.divider()
 
-    # 2. 2026 營收進度 (加入手動輸入功能) [cite: 2026-01-20]
-    st.subheader("🎯 營收達標看板")
-    # 讓執行長可直接在 UI 修改數據
+    # 2. 2026 營收進度 (加入時間進度指標) [cite: 2026-01-20]
+    st.subheader("🎯 營營收達標看板")
     revenue_input = st.number_input("目前營收金額 (TWD)", value=3800000, step=100000)
     date_input = st.text_input("數據統計截至日期", value="2026-01-19")
     
+    # 計算時間進度目標 (依天數計算)
+    try:
+        current_date = datetime.strptime(date_input, "%Y-%m-%d")
+        day_of_year = current_date.timetuple().tm_yday
+        is_leap = (current_date.year % 4 == 0 and current_date.year % 100 != 0) or (current_date.year % 400 == 0)
+        total_days = 366 if is_leap else 365
+        expected_prog = day_of_year / total_days
+    except:
+        expected_prog = 0.0
+
     target_150m = 150000000
-    prog = min(revenue_input / target_150m, 1.0)
-    st.progress(prog)
-    st.markdown(f"<small>進度: {prog:.2%} | <b>{date_input} 營收概算</b></small>", unsafe_allow_html=True)
-    st.caption(f"已達成 {revenue_input/1000000:.2f}M / 150M")
+    actual_prog = min(revenue_input / target_150m, 1.0)
+    
+    # 顯示進度條
+    st.progress(actual_prog)
+    
+    # 顯示對比數據
+    st.markdown(f"""
+    <div class="comparison-box">
+        <b>{date_input} 營收概算</b><br>
+        實際達成率: <span style="color: #2563eb;">{actual_prog:.2%}</span><br>
+        時間進度目標: <span style="color: #64748b;">{expected_prog:.2%}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 狀態提醒
+    if actual_prog < expected_prog:
+        st.caption("🔴 目前業績落後於時間進度")
+    else:
+        st.caption("🟢 目前業績領先時間進度")
 
     st.divider()
     
-    # 3. 海外市場狀態 (新增洛杉磯與東京) [cite: 2026-01-20]
+    # 3. 海外市場狀態
     st.subheader("🌍 海外市場狀態")
     now_tw = datetime.now()
-    
-    # 時間計算
-    time_jp = now_tw + timedelta(hours=1) # 東京 UTC+9
-    time_la = now_tw - timedelta(hours=16) # 洛杉磯 UTC-8 (冬令時間)
+    time_jp = now_tw + timedelta(hours=1)
+    time_la = now_tw - timedelta(hours=16)
     
     def get_status(h): return "營運中" if 9 <= h <= 18 else "休息中"
 
@@ -215,7 +239,7 @@ with col_right:
             st.markdown(f"<div style='padding:4px 0; border-bottom:1px solid #eee;'><a href='{entry.link}' target='_blank' style='text-decoration:none; font-size:13px; color:#2563eb;'>{clean_t}</a></div>", unsafe_allow_html=True)
 
 st.divider()
-st.subheader("📋 多幣別對照矩陣 (Cross Rates)")
+st.subheader("📋 多幣別對照矩陣")
 if rates_dict:
     matrix_c = list(rates_dict.keys())
     m_data = [[round(rates_dict[r] / rates_dict[c], 4) for c in matrix_c] for r in matrix_c]
