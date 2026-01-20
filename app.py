@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. 網頁基本設定
 st.set_page_config(page_title="Terry的換匯小工具", page_icon="🌍", layout="wide")
 
-# 2. 抓取匯率與新聞資料 (簡化邏輯)
+# 2. 抓取匯率與新聞資料
 @st.cache_data(ttl=600)
 def fetch_all_data():
     # --- 匯率部分 ---
@@ -21,21 +21,22 @@ def fetch_all_data():
             parts = line.split(',')
             if len(parts) < 13: continue
             code = parts[0].strip()
-            # 目標幣別清單
             target_map = {'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 'KRW': '韓元 (KRW)', 'MYR': '馬幣 (MYR)', 'THB': '泰銖 (THB)', 'SGD': '新幣 (SGD)'}
             for k, v in target_map.items():
                 if k in code: rates[v] = float(parts[12].strip())
     except:
         pass
 
-    # --- 新聞部分 (簡化關鍵字) ---
+    # --- 新聞部分 (鎖定經濟日報與工商時報) ---
     news_entries = []
     try:
-        # 只抓取最核心的關鍵字，並確保編碼正確
-        kw = urllib.parse.quote("元初豆坊 植物奶") 
+        # 使用 site 指令鎖定兩大財經報紙
+        query = "site:money.udn.com OR site:ctee.com.tw"
+        kw = urllib.parse.quote(query) 
         rss_url = f"https://news.google.com/rss/search?q={kw}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
         feed = feedparser.parse(rss_url)
-        news_entries = feed.entries[:10] # 顯示前 10 則
+        # 只取前 7 則新聞
+        news_entries = feed.entries[:7] 
     except:
         pass
 
@@ -47,7 +48,7 @@ rates_dict, news_list = fetch_all_data()
 st.title("🌍 Terry的換匯小工具")
 st.write(f"執行長您好，目前系統時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 分成左右兩欄：[匯率工具 : 產業新聞] = 3 : 1
+# 分成左右兩欄
 col_left, col_right = st.columns([3, 1])
 
 with col_left:
@@ -74,7 +75,6 @@ with col_left:
         with c_r:
             target = st.selectbox("查看趨勢", [n for n in rates_dict.keys() if n != '台幣 (TWD)'])
             range_p = st.radio("範圍", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
-            # Yahoo Finance 代碼對照
             s_map = {'美金 (USD)': 'USDTWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', '韓元 (KRW)': 'KRWTWD=X', '馬幣 (MYR)': 'MYRTWD=X', '泰銖 (THB)': 'THBTWD=X', '新幣 (SGD)': 'SGDTWD=X'}
             hist = yf.download(s_map.get(target), period=range_p, progress=False)['Close']
             st.line_chart(hist)
@@ -82,12 +82,15 @@ with col_left:
         st.error("匯率資料讀取中，請稍候。")
 
 with col_right:
-    st.subheader("📰 產業快訊")
+    st.subheader("📰 財經日報頭條")
+    st.caption("經濟日報 / 工商時報")
     if news_list:
         for entry in news_list:
+            # 移除標題中多餘的報紙名稱後綴
+            clean_title = entry.title.split(" - ")[0]
             st.markdown(f"""
             <div style='padding: 8px; border-bottom: 1px solid #ddd; margin-bottom: 5px;'>
-                <a href='{entry.link}' target='_blank' style='text-decoration: none; font-size: 14px; font-weight: bold; color: #2563eb;'>{entry.title}</a><br>
+                <a href='{entry.link}' target='_blank' style='text-decoration: none; font-size: 14px; font-weight: bold; color: #2563eb;'>{clean_title}</a><br>
                 <small style='color: gray;'>{entry.published[:16]}</small>
             </div>
             """, unsafe_allow_html=True)
