@@ -7,14 +7,14 @@ import urllib.parse
 from datetime import datetime
 
 # 1. 網頁基本設定
-st.set_page_config(page_title="Terry的換匯小工具", page_icon="🌍", layout="wide")
+st.set_page_config(page_title="Terry的換匯小工具", page_icon="📈", layout="wide")
 
-# CSS 樣式修正：美化看板與矩陣表格
+# CSS 樣式：美化指標與新聞區塊
 st.markdown("""
     <style>
     .stMetric {
         background-color: var(--secondary-background-color);
-        padding: 15px;
+        padding: 10px;
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         border: 1px solid var(--border-color);
@@ -23,12 +23,6 @@ st.markdown("""
         padding: 8px;
         border-bottom: 1px solid var(--border-color);
         margin-bottom: 5px;
-    }
-    .news-title {
-        font-size: 14px;
-        font-weight: bold;
-        text-decoration: none;
-        color: #2563eb;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -45,6 +39,7 @@ def fetch_all_data():
             parts = line.split(',')
             if len(parts) < 13: continue
             code = parts[0].strip()
+            # 支援幣別包含美、日、歐、韓、馬、泰、新
             target_map = {
                 'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 
                 'KRW': '韓元 (KRW)', 'MYR': '馬幣 (MYR)', 'THB': '泰銖 (THB)', 'SGD': '新幣 (SGD)'
@@ -54,96 +49,114 @@ def fetch_all_data():
     except:
         pass
 
+    # --- 標竿股價部分 (加入佳格 1227.TW) ---
+    stocks = {}
+    stock_targets = {
+        '1216.TW': '統一',
+        '1201.TW': '味全',
+        '1210.TW': '大成',
+        '1231.TW': '聯華食',
+        '1227.TW': '佳格',
+        '2912.TW': '統一超',
+        '5903.TWO': '全家'
+    }
+    try:
+        for symbol, name in stock_targets.items():
+            ticker = yf.Ticker(symbol)
+            info = ticker.history(period='2d')
+            if len(info) >= 2:
+                price = info['Close'].iloc[-1]
+                prev_price = info['Close'].iloc[-2]
+                change = price - prev_price
+                stocks[name] = (price, change)
+    except:
+        pass
+
     # --- 新聞部分 (鎖定食力、經濟、數位時代) ---
     news_entries = []
     try:
-        # 鎖定站點：食力 (foodnext.net)、經濟日報 (money.udn.com)、數位時代 (bnext.com.tw)
         query = "site:foodnext.net OR site:money.udn.com OR site:bnext.com.tw"
         kw = urllib.parse.quote(query) 
         rss_url = f"https://news.google.com/rss/search?q={kw}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
         feed = feedparser.parse(rss_url)
-        news_entries = feed.entries[:7] # 維持 7 則
+        news_entries = feed.entries[:7]
     except:
         pass
 
-    return rates, news_entries
+    return rates, stocks, news_entries
 
-rates_dict, news_list = fetch_all_data()
+rates_dict, stocks_dict, news_list = fetch_all_data()
 
 # 3. 介面呈現
-st.title("🌍 Terry的換匯小工具")
-st.write(f"執行長您好，系統時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.title("📈 Terry的換匯小工具 (產業戰情室版)")
+st.write(f"執行長您好，今日系統時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 分成左右兩欄：[功能區 : 新聞區] = 3 : 1
 col_main, col_news = st.columns([3, 1])
 
 with col_main:
-    st.subheader("📊 即時匯率看板")
+    # 匯率看板
+    st.subheader("📊 即時匯率 (對台幣)")
     if rates_dict and len(rates_dict) > 1:
-        # 儀表板
         items = [i for i in rates_dict.items() if i[0] != '台幣 (TWD)']
         cols = st.columns(len(items))
         for i, (name, rate) in enumerate(items):
             cols[i].metric(name, f"{rate:.4f}")
-        
-        st.divider()
-        
-        # 換算與圖表
-        c1, c2 = st.columns([1, 1.2])
-        with c1:
-            st.write("🔄 **快速試算**")
-            amt = st.number_input("金額", min_value=0.0, value=100.0)
-            f_curr = st.selectbox("從", list(rates_dict.keys()), index=1)
-            t_curr = st.selectbox("到", list(rates_dict.keys()), index=0)
-            if st.button("立即試算", use_container_width=True):
-                res = (amt * rates_dict[f_curr]) / rates_dict[t_curr]
-                st.success(f"### {res:,.2f} {t_curr}")
-        
-        with c2:
-            st.write("📈 **歷史分析**")
-            target = st.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'])
-            range_p = st.radio("跨度", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
-            s_map = {
-                '美金 (USD)': 'USDTWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', 
-                '韓元 (KRW)': 'KRWTWD=X', '馬幣 (MYR)': 'MYRTWD=X', '泰銖 (THB)': 'THBTWD=X', '新幣 (SGD)': 'SGDTWD=X'
-            }
-            hist = yf.download(s_map.get(target), period=range_p, progress=False)['Close']
-            st.line_chart(hist)
-    else:
-        st.error("匯率資料載入中...")
+    
+    # 食品與零售標竿股價 (擴展至 7 家)
+    st.subheader("🏢 食品零售標竿企業股價")
+    if stocks_dict:
+        # 分成兩排：第一排 4 家，第二排 3 家
+        keys = list(stocks_dict.keys())
+        s_cols1 = st.columns(4)
+        for i in range(4):
+            name = keys[i]
+            price, change = stocks_dict[name]
+            s_cols1[i].metric(name, f"{price:.2f}", f"{change:+.2f}")
+            
+        s_cols2 = st.columns(4) # 預留空間保持整齊
+        for i in range(4, len(keys)):
+            name = keys[i]
+            price, change = stocks_dict[name]
+            s_cols2[i-4].metric(name, f"{price:.2f}", f"{change:+.2f}")
+    
+    st.divider()
+    
+    c1, c2 = st.columns([1, 1.2])
+    with c1:
+        st.write("🔄 **快速試算**")
+        amt = st.number_input("試算金額", min_value=0.0, value=100.0)
+        f_curr = st.selectbox("從", list(rates_dict.keys()), index=1)
+        t_curr = st.selectbox("到", list(rates_dict.keys()), index=0)
+        if st.button("立即計算", use_container_width=True):
+            res = (amt * rates_dict[f_curr]) / rates_dict[t_curr]
+            st.success(f"### {res:,.2f} {t_curr}")
+    
+    with c2:
+        st.write("📈 **趨勢分析**")
+        target = st.selectbox("分析幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'])
+        range_p = st.radio("範圍", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
+        s_map = {'美金 (USD)': 'USDTWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', '韓元 (KRW)': 'KRWTWD=X', '馬幣 (MYR)': 'MYRTWD=X', '泰銖 (THB)': 'THBTWD=X', '新幣 (SGD)': 'SGDTWD=X'}
+        hist = yf.download(s_map.get(target), period=range_p, progress=False)['Close']
+        st.line_chart(hist)
 
 with col_news:
     st.subheader("📰 產業商報")
-    st.caption("食力 / 經濟 / 數位時代")
     if news_list:
         for entry in news_list:
             clean_title = entry.title.split(" - ")[0]
             st.markdown(f"""
             <div class="news-card">
-                <a class="news-title" href="{entry.link}" target="_blank">{clean_title}</a><br>
-                <small style='color: gray;'>{entry.published[:16]}</small>
+                <a href="{entry.link}" target="_blank" style="text-decoration:none; font-size:14px; font-weight:bold; color:#2563eb;">{clean_title}</a><br>
+                <small style="color:gray;">{entry.published[:16]}</small>
             </div>
             """, unsafe_allow_html=True)
-    else:
-        st.write("載入中...")
 
-# 4. 最下方的多幣別對照矩陣 (找回來了！)
 st.divider()
-st.subheader("📋 多幣別對照矩陣 (Cross Rates)")
-st.write("顯示「1單位左側貨幣」可兌換多少「上方貨幣」。適用於觀察非台幣間的換算（如馬幣換新幣）。")
-
+st.subheader("📋 多幣別對照矩陣")
 if rates_dict:
     matrix_currencies = list(rates_dict.keys())
     matrix_data = []
     for row_curr in matrix_currencies:
-        row_values = []
-        for col_curr in matrix_currencies:
-            if rates_dict[row_curr] and rates_dict[col_curr]:
-                val = rates_dict[row_curr] / rates_dict[col_curr]
-                row_values.append(round(val, 4))
-            else:
-                row_values.append("-")
+        row_values = [round(rates_dict[row_curr] / rates_dict[col_curr], 4) for col_curr in matrix_currencies]
         matrix_data.append(row_values)
-    
-    df_matrix = pd.DataFrame(matrix_data, index=matrix_currencies, columns=matrix_currencies)
-    st.dataframe(df_matrix, use_container_width=True)
+    st.dataframe(pd.DataFrame(matrix_data, index=matrix_currencies, columns=matrix_currencies), use_container_width=True)
