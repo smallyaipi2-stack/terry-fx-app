@@ -8,10 +8,10 @@ import altair as alt
 import os
 from datetime import datetime, timedelta
 
-# 1. 網頁基本設定 [cite: 2025-08-10]
+# 1. 網頁基本設定
 st.set_page_config(page_title="Terry戰情室", page_icon="📈", layout="wide")
 
-# 定義常數與路徑
+# 定義常數與目標
 DATA_FILE = "revenue_persistence.csv"
 TARGET_TOTAL = 140000000
 
@@ -21,7 +21,6 @@ def load_data():
         try:
             return pd.read_csv(DATA_FILE)
         except: pass
-    # 初始預設數據 (使用 float 確保計算兼容性)
     return pd.DataFrame({
         "月份": [f"{i:02d}月" for i in range(1, 13)],
         "業績目標 (TWD)": [float(round(TARGET_TOTAL/12, 0))] * 12,
@@ -36,7 +35,7 @@ def save_data(df):
 if 'revenue_data' not in st.session_state:
     st.session_state.revenue_data = load_data()
 
-# 3. CSS 樣式修正
+# 3. CSS 樣式
 st.markdown("""
     <style>
     .stMetric { background-color: var(--secondary-background-color); padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); }
@@ -169,27 +168,22 @@ with tab1:
         st.subheader("📰 產業商報")
         for ne in news_list: st.markdown(f"<div style='font-size:13px; margin-bottom:5px;'><a href='{ne.link}' target='_blank'>{ne.title.split(' - ')[0]}</a></div>", unsafe_allow_html=True)
 
-# --- Tab 2: 年度業績規劃 (修正輸入格式與達成率顯示) ---
+# --- Tab 2: 年度業績規劃 (還原為純數字輸入) ---
 with tab2:
     st.header("📅 年度業績規劃與追蹤")
-    st.write("請輸入各月數據。系統會自動顯示千分位，修改後請點擊儲存。")
+    st.write("請輸入各月數據。輸入時為純數字，下方報表會顯示千分位。")
     
     c_edit, c_save = st.columns([3, 1])
     
     with c_edit:
-        # 1. 輸入表格：使用 "%,.0f" (浮點數+千分位+無小數) 解決 sprintf 報錯
+        # 還原設定：移除 column_config 的格式限制，確保絕對可輸入
         edited_df = st.data_editor(
             st.session_state.revenue_data, 
             use_container_width=True, 
             hide_index=True, 
             height=475,
-            column_config={
-                "業績目標 (TWD)": st.column_config.NumberColumn(format="%,.0f"),
-                "實際營收 (TWD)": st.column_config.NumberColumn(format="%,.0f")
-            },
-            key="revenue_editor_v3"
+            key="revenue_editor_stable"
         )
-        # 確保資料更新
         st.session_state.revenue_data = edited_df
 
     with c_save:
@@ -203,7 +197,7 @@ with tab2:
 
     st.divider()
     
-    # 計算 Dataframe (包含達成率)
+    # 計算顯示與圖表
     calc_df = edited_df.copy()
     calc_df["達成率 (%)"] = (calc_df["實際營收 (TWD)"] / calc_df["業績目標 (TWD)"] * 100).fillna(0)
     
@@ -222,7 +216,7 @@ with tab2:
 
     with c_chart2:
         st.subheader("🎯 目標達成分析")
-        # 2. 顯示表格：使用 dataframe 與 column_config 強制鎖定小數點後兩位
+        # 顯示表格 (使用 dataframe 呈現漂亮的格式)
         st.dataframe(
             calc_df[["月份", "達成率 (%)"]],
             use_container_width=True,
