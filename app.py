@@ -8,35 +8,37 @@ import altair as alt
 import os
 from datetime import datetime, timedelta
 
-# 1. 網頁基本設定
+# 1. 網頁基本設定 [cite: 2025-08-10]
 st.set_page_config(page_title="Terry戰情室", page_icon="📈", layout="wide")
 
-# 定義常數與路徑
+# 定義常數與目標 (1.4億)
 DATA_FILE = "revenue_persistence.csv"
 TARGET_TOTAL = 140000000
 
-# 2. 記憶功能函數
+# 2. 數據持久化功能 (修正讀取邏輯)
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
-            return pd.read_csv(DATA_FILE)
+            df = pd.read_csv(DATA_FILE)
+            # 確保格式統一
+            df["月份"] = [f"{i:02d}月" for i in range(1, 13)]
+            return df
         except: pass
-    # 初始預設數據
     return pd.DataFrame({
         "月份": [f"{i:02d}月" for i in range(1, 13)],
-        "業績目標 (TWD)": [round(TARGET_TOTAL/12, 0)] * 12,
+        "業績目標 (TWD)": [float(round(TARGET_TOTAL/12, 0))] * 12,
         "實際營收 (TWD)": [0.0] * 12
     })
 
 def save_data(df):
     df.to_csv(DATA_FILE, index=False)
-    st.success("✅ 數據已成功存入記憶體！")
+    st.success("✅ 戰情數據已永久存入記憶體！")
 
-# 初始化數據 (關鍵：只儲存原始輸入，不儲存計算列)
+# 初始化 session_state
 if 'revenue_data' not in st.session_state:
     st.session_state.revenue_data = load_data()
 
-# 3. CSS 樣式：自動適應深淺模式
+# 3. CSS 樣式修正
 st.markdown("""
     <style>
     .stMetric { background-color: var(--secondary-background-color); padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); }
@@ -46,7 +48,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=600)
-def fetch_external_info():
+def fetch_all_info():
     rates = {'台幣 (TWD)': 1.0}
     try:
         r = requests.get("https://rate.bot.com.tw/xrt/flcsv/0/day", timeout=10)
@@ -76,7 +78,7 @@ def fetch_external_info():
     except: pass
     return rates, stocks, news
 
-rates_dict, stocks_dict, news_list = fetch_external_info()
+rates_dict, stocks_dict, news_list = fetch_all_info()
 
 # 4. 介面呈現
 st.title("📈 Terry戰情室")
@@ -110,23 +112,23 @@ with tab1:
             if not hist.empty: st.line_chart(hist)
         
         st.divider()
-        with st.expander("🚀 海外佈局：進出口損益預警系統", expanded=True):
-            t_im, t_ex = st.tabs(["📥 進口採購成本分析", "📤 外銷收益影響分析"])
-            with t_im:
-                c1, c2, c3 = st.columns(3); curr_i = c1.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=4, key="imc")
-                base_i = c2.number_input("基準匯率", value=7.10, format="%.4f", key="imb"); amt_i = c3.number_input("金額", value=1000000, key="ima")
-                imp_i = amt_i * (rates_dict[curr_i] - base_i)
-                if imp_i > 0: st.error(f"⚠️ 支出預計增加 {imp_i:,.0f} 元")
-                elif imp_i < 0: st.success(f"✅ 支出預計節省 {abs(imp_i):,.0f} 元")
-            with t_ex:
-                c1, c2, c3 = st.columns(3); curr_e = c1.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=6, key="exc")
-                base_e = c2.number_input("預算匯率", value=24.00, format="%.4f", key="exb"); amt_e = c3.number_input("收匯金額", value=500000, key="exa")
-                imp_e = amt_e * (rates_dict[curr_e] - base_e)
-                if imp_e > 0: st.success(f"✅ 收益預計增加 {imp_e:,.0f} 元")
-                elif imp_e < 0: st.error(f"⚠️ 收益預計縮水 {abs(imp_e):,.0f} 元")
+        with st.expander("🚀 海外佈局預警", expanded=True):
+            ti, te = st.tabs(["進口採購", "外銷收益"])
+            with ti:
+                c1, c2, c3 = st.columns(3); ic = c1.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=4, key="imc")
+                ib = c2.number_input("基準", value=7.10, format="%.4f", key="imb"); ia = c3.number_input("金額", value=1000000, key="ima")
+                imp_i = ia * (rates_dict[ic] - ib)
+                if imp_i > 0: st.error(f"⚠️ 支出增加 {imp_i:,.0f} 元")
+                elif imp_i < 0: st.success(f"✅ 支出節省 {abs(imp_i):,.0f} 元")
+            with te:
+                c1, c2, c3 = st.columns(3); ec = c1.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=6, key="exc")
+                eb = c2.number_input("預算", value=24.00, format="%.4f", key="exb"); ea = c3.number_input("收款", value=500000, key="exa")
+                ex_imp = ea * (rates_dict[ec] - eb)
+                if ex_imp > 0: st.success(f"✅ 收益增加 {ex_imp:,.0f} 元")
+                elif ex_imp < 0: st.error(f"⚠️ 收益縮水 {abs(ex_imp):,.0f} 元")
         
         st.divider()
-        st.subheader("🏢 食品生技與零售標竿股價")
+        st.subheader("🏢 食品與零售標竿股價")
         if stocks_dict:
             k_list = list(stocks_dict.keys()); s_row1 = st.columns(4)
             for i in range(4): nk = k_list[i]; pk, ck = stocks_dict[nk]; s_row1[i].metric(nk, f"{pk:,.2f}", f"{ck:+,.2f}")
@@ -141,21 +143,21 @@ with tab1:
 
     with col_r:
         st.subheader("🚀 願景里程碑")
-        dl = (datetime(2033, 1, 1) - datetime.now()).days
-        st.markdown(f"<div class='status-box'><b>2033 上市倒數</b><br><span style='font-size:22px; color:#00A650;'>{dl:,} 天</span></div>", unsafe_allow_html=True)
+        days_l = (datetime(2033, 1, 1) - datetime.now()).days
+        st.markdown(f"<div class='status-box'><b>2033 上市倒數</b><br><span style='font-size:22px; color:#00A650;'>{days_l:,} 天</span></div>", unsafe_allow_html=True)
         
         st.divider()
         st.subheader("🎯 營收達成率 (目標 1.4 億)")
-        total_a_rev = st.session_state.revenue_data["實際營收 (TWD)"].sum()
-        st.metric("目前累計營收 (TWD)", f"{total_a_rev:,.0f}")
+        curr_total = st.session_state.revenue_data["實際營收 (TWD)"].sum()
+        st.metric("目前累計營收 (TWD)", f"{curr_total:,.0f}")
         
         dt_now = datetime.now(); dy_idx = dt_now.timetuple().tm_yday
         is_l = (dt_now.year % 4 == 0 and dt_now.year % 100 != 0) or (dt_now.year % 400 == 0)
         exp_p = dy_idx / (366 if is_l else 365)
-        act_p = min(total_a_rev / TARGET_TOTAL, 1.0)
+        act_p = min(curr_total / TARGET_TOTAL, 1.0)
         st.progress(act_p)
-        s_color = '#00A650' if act_p >= exp_p else '#d32f2f'
-        st.markdown(f"<div class='comparison-box' style='border-left:5px solid {s_color};'>實際達成: <b>{act_p:.2%}</b><br>時間進度: {exp_p:.2%}</div>", unsafe_allow_html=True)
+        sc = '#00A650' if act_p >= exp_p else '#d32f2f'
+        st.markdown(f"<div class='comparison-box' style='border-left:5px solid {sc};'>實際達成: <b>{act_p:.2%}</b><br>時間進度: {exp_p:.2%}</div>", unsafe_allow_html=True)
         
         st.divider()
         st.subheader("🌍 全球時間")
@@ -169,41 +171,41 @@ with tab1:
         st.subheader("📰 產業商報")
         for ne in news_list: st.markdown(f"<div style='font-size:13px; margin-bottom:5px;'><a href='{ne.link}' target='_blank'>{ne.title.split(' - ')[0]}</a></div>", unsafe_allow_html=True)
 
-# --- Tab 2: 年度業績規劃 (修正唯讀問題) ---
+# --- Tab 2: 年度業績規劃 (修復輸入報錯) ---
 with tab2:
     st.header("📅 年度業績規劃與追蹤")
-    st.write("請輸入數據。系統會自動計算達成率（千分位顯示），修改後請點擊儲存。")
+    st.write("請輸入各月數據。系統會自動顯示千分位，修改後請點擊儲存 [cite: 2026-01-20]。")
     
     c_edit, c_save = st.columns([3, 1])
     
     with c_edit:
-        # 關鍵修正：表格只負責「輸入」，不負責「顯示計算結果」以防唯讀
+        # 修改為標準 Streamlit 數字列設定，避免 sprintf 錯誤
         edited_df = st.data_editor(
             st.session_state.revenue_data, 
             use_container_width=True, 
             hide_index=True, 
             height=475,
             column_config={
-                "業績目標 (TWD)": st.column_config.NumberColumn(format="%,d"),
-                "實際營收 (TWD)": st.column_config.NumberColumn(format="%,d")
+                "業績目標 (TWD)": st.column_config.NumberColumn(format="%.0f"),
+                "實際營收 (TWD)": st.column_config.NumberColumn(format="%.0f")
             },
-            key="revenue_editor"
+            key="revenue_editor_v2"
         )
-        # 確保資料更新
+        # 即時數據更新
         st.session_state.revenue_data = edited_df
 
     with c_save:
-        if st.button("💾 儲存數據", use_container_width=True):
+        if st.button("💾 儲存並同步數據", use_container_width=True):
             save_data(edited_df)
             st.rerun()
         st.divider()
-        sum_actual = edited_df["實際營收 (TWD)"].sum()
-        st.metric("年度總實績", f"{sum_actual:,.0f}")
-        st.metric("年度總達成率", f"{(sum_actual/TARGET_TOTAL):.2%}")
+        total_sum = edited_df["實際營收 (TWD)"].sum()
+        st.metric("年度總實績", f"{total_sum:,.0f}")
+        st.metric("年度總達成率", f"{(total_sum/TARGET_TOTAL):.2%}")
 
     st.divider()
     
-    # 計算顯示用的 Dataframe (包含達成率)
+    # 計算顯示與圖表用的 Dataframe
     calc_df = edited_df.copy()
     calc_df["達成率 (%)"] = (calc_df["實際營收 (TWD)"] / calc_df["業績目標 (TWD)"] * 100).round(2).fillna(0)
     
@@ -221,7 +223,8 @@ with tab2:
         st.altair_chart(chart, use_container_width=True)
 
     with c_chart2:
-        st.subheader("🎯 目標達成率分析")
+        st.subheader("🎯 目標達成分析")
         disp_df = calc_df[["月份", "達成率 (%)"]].copy()
-        disp_df["達成率 (%)"] = disp_df["達成率 (%)"].map('{:,.2f}%'.format)
+        # 格式化顯示到小數點後兩位
+        disp_df["達成率 (%)"] = disp_df["達成率 (%)"].map('{:,.2%}'.format).apply(lambda x: x.replace('%','')) + '%'
         st.table(disp_df)
