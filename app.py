@@ -5,10 +5,10 @@ import yfinance as yf
 import feedparser
 from datetime import datetime
 
-# 1. 網頁外觀設定
+# 1. 網頁外觀與標題設定
 st.set_page_config(page_title="Terry的換匯小工具", page_icon="🌍", layout="wide")
 
-# CSS 樣式：智慧適應深淺模式，美化右側新聞欄位
+# CSS 樣式：美化深/淺模式下的新聞與卡片
 st.markdown("""
     <style>
     .stMetric {
@@ -19,116 +19,104 @@ st.markdown("""
         border: 1px solid var(--border-color);
     }
     .news-card {
-        padding: 12px;
+        padding: 10px;
         border-bottom: 1px solid var(--border-color);
-        margin-bottom: 12px;
+        margin-bottom: 8px;
     }
     .news-title {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: bold;
         text-decoration: none;
         color: #2563eb;
     }
-    .news-source {
-        font-size: 12px;
+    .news-meta {
+        font-size: 11px;
         color: gray;
-        margin-top: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 資料抓取邏輯 (移至頂層確保優先執行) ---
+# --- A. 資料抓取區 (確保在介面渲染前完成) ---
 @st.cache_data(ttl=600)
-def get_bot_rates():
-    url = "https://rate.bot.com.tw/xrt/flcsv/0/day"
+def fetch_data():
+    # 抓取匯率
+    rates = {'台幣 (TWD)': 1.0}
     try:
-        response = requests.get(url, timeout=10)
-        response.encoding = 'utf-8-sig'
-        lines = response.text.split('\n')
-        rates = {'台幣 (TWD)': 1.0}
-        target_map = {
-            'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 
-            'KRW': '韓元 (KRW)', 'MYR': '馬幣 (MYR)', 'THB': '泰銖 (THB)', 'SGD': '新幣 (SGD)'
-        }
-        for line in lines:
+        r = requests.get("https://rate.bot.com.tw/xrt/flcsv/0/day", timeout=10)
+        r.encoding = 'utf-8-sig'
+        for line in r.text.split('\n'):
             parts = line.split(',')
             if len(parts) < 13: continue
             code = parts[0].strip()
+            target_map = {'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 'KRW': '韓元 (KRW)', 'MYR': '馬幣 (MYR)', 'THB': '泰銖 (THB)', 'SGD': '新幣 (SGD)'}
             for k, v in target_map.items():
-                if k in code:
-                    rates[v] = float(parts[12].strip())
-        return rates
-    except Exception as e:
-        return None
+                if k in code: rates[v] = float(parts[12].strip())
+    except: pass
+    
+    # 抓取新聞 (使用精簡後的搜尋字串)
+    news_entries = []
+    # 關鍵字：零售, 餐飲, 植物奶, 我饗國際
+    query = "零售+餐飲+植物奶+我饗國際"
+    rss_url = f"https://news.google.com/rss/search?q={query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    try:
+        feed = feedparser.parse(rss_url)
+        news_entries = feed.entries[:15]
+    except: pass
+    
+    return rates, news_entries
 
-# 預先取得匯率資料
-rates_dict = get_bot_rates()
+rates_dict, news_list = fetch_data()
 
-# --- 主畫面標題 ---
+# --- B. 介面渲染區 ---
 st.title("🌍 Terry的換匯小工具")
-st.write(f"系統狀態：穩定運行 | 資料時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.write(f"最後同步：{datetime.now().strftime('%H:%M:%S')}")
 
-# --- 建立佈局：左側功能區(3) vs 右側新聞區(1) ---
-col_main, col_news = st.columns([3, 1])
+# 分成左右兩欄
+col_left, col_right = st.columns([3, 1])
 
-# --- 左側主要功能區 ---
-with col_main:
-    if rates_dict:
-        # 即時匯率看板
-        st.subheader("📊 即時匯率看板 (對台幣)")
-        display_items = [item for item in rates_dict.items() if item[0] != '台幣 (TWD)']
-        cols = st.columns(len(display_items))
-        for i, (name, rate) in enumerate(display_items):
-            with cols[i]:
-                st.metric(name, f"{rate:.4f} TWD")
+with col_left:
+    if rates_dict and len(rates_dict) > 1:
+        st.subheader("📊 即時匯率與試算")
+        # 看板
+        items = [i for i in rates_dict.items() if i[0] != '台幣 (TWD)']
+        cols = st.columns(len(items))
+        for i, (name, rate) in enumerate(items):
+            cols[i].metric(name, f"{rate:.4f}")
         
         st.divider()
         
-        # 換算與歷史圖表
-        c_calc, c_chart = st.columns([1, 1.2])
-        with c_calc:
-            st.subheader("🔄 快速試算")
-            amt = st.number_input("金額", min_value=0.0, value=100.0)
-            f_curr = st.selectbox("來源幣別", list(rates_dict.keys()), index=1)
-            t_curr = st.selectbox("目標幣別", list(rates_dict.keys()), index=0)
-            
+        # 換算與圖表
+        c1, c2 = st.columns([1, 1.2])
+        with c1:
+            amt = st.number_input("輸入金額", min_value=0.0, value=100.0)
+            f_c = st.selectbox("從", list(rates_dict.keys()), index=1)
+            t_c = st.selectbox("到", list(rates_dict.keys()), index=0)
             if st.button("立即計算", use_container_width=True):
-                res = (amt * rates_dict[f_curr]) / rates_dict[t_curr]
-                st.success(f"### {res:,.2f} {t_curr}")
+                res = (amt * rates_dict[f_c]) / rates_dict[t_c]
+                st.success(f"### {res:,.2f} {t_c}")
         
-        with c_chart:
-            st.subheader("📈 歷史趨勢")
-            target = st.selectbox("幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'])
-            range_p = st.radio("範圍", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
-            
-            def get_h(curr, p):
-                s_map = {'美金 (USD)': 'USDTWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', '韓元 (KRW)': 'KRWTWD=X', '馬幣 (MYR)': 'MYRTWD=X', '泰銖 (THB)': 'THBTWD=X', '新幣 (SGD)': 'SGDTWD=X'}
-                symbol = s_map.get(curr)
-                data = yf.download(symbol, period=p, progress=False)
-                return data['Close'] if not data.empty else None
-            
-            h_data = get_h(target, range_p)
-            if h_data is not None:
-                st.line_chart(h_data)
+        with c2:
+            target = st.selectbox("趨勢分析", [n for n in rates_dict.keys() if n != '台幣 (TWD)'])
+            range_p = st.radio("跨度", ["1mo", "3mo", "6mo", "1y"], horizontal=True)
+            s_map = {'美金 (USD)': 'USDTWD=X', '日圓 (JPY)': 'JPYTWD=X', '歐元 (EUR)': 'EURTWD=X', '韓元 (KRW)': 'KRWTWD=X', '馬幣 (MYR)': 'MYRTWD=X', '泰銖 (THB)': 'THBTWD=X', '新幣 (SGD)': 'SGDTWD=X'}
+            hist = yf.download(s_map.get(target), period=range_p, progress=False)['Close']
+            st.line_chart(hist)
     else:
-        st.error("無法取得即時匯率資料，請確認網路連線。")
+        st.error("匯率資料載入失敗。")
 
-# --- 右側：強化版產業商情報告 ---
-with col_news:
-    st.header("📰 產業快訊")
-    # 增加更多關鍵字，優化抓取內容
-    search_keywords = "台灣+零售+餐飲+連鎖+我饗國際+元初豆坊+植物奶+食品科技"
-    rss_url = f"https://news.google.com/rss/search?q={search_keywords}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
-    feed = feedparser.parse(rss_url)
-    
-    if feed.entries:
-        # 顯示最新 15 則新聞
-        for entry in feed.entries[:15]:
+with col_right:
+    st.subheader("📰 產業快訊")
+    if news_list:
+        for entry in news_list:
             st.markdown(f"""
             <div class="news-card">
                 <a class="news-title" href="{entry.link}" target="_blank">{entry.title}</a><br>
-                <div class="news-source">{entry.source.get('title', '新聞來源')} | {entry.published[:16]}</div>
+                <div class="news-meta">{entry.published[:16]}</div>
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.write("暫無相關產業新聞。")
+        st.info("🔄 正在嘗試重新獲取新聞...")
+        # 若快取導致空白，強制重新整理可解決
+        if st.button("手動刷新新聞"):
+            st.cache_data.clear()
+            st.rerun()
