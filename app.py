@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. 網頁基本設定
 st.set_page_config(page_title="Terry的換匯小工具", page_icon="📈", layout="wide")
 
-# CSS 樣式：美化指標與新聞區塊
+# CSS 樣式：美化指標與矩陣
 st.markdown("""
     <style>
     .stMetric {
@@ -39,7 +39,6 @@ def fetch_all_data():
             parts = line.split(',')
             if len(parts) < 13: continue
             code = parts[0].strip()
-            # 支援幣別包含美、日、歐、韓、馬、泰、新
             target_map = {
                 'USD': '美金 (USD)', 'JPY': '日圓 (JPY)', 'EUR': '歐元 (EUR)', 
                 'KRW': '韓元 (KRW)', 'MYR': '馬幣 (MYR)', 'THB': '泰銖 (THB)', 'SGD': '新幣 (SGD)'
@@ -49,7 +48,7 @@ def fetch_all_data():
     except:
         pass
 
-    # --- 標竿股價部分 (加入佳格 1227.TW) ---
+    # --- 標竿股價部分 (補足第 8 家：葡萄王 1707.TW) ---
     stocks = {}
     stock_targets = {
         '1216.TW': '統一',
@@ -57,6 +56,7 @@ def fetch_all_data():
         '1210.TW': '大成',
         '1231.TW': '聯華食',
         '1227.TW': '佳格',
+        '1707.TW': '葡萄王',  # 新增
         '2912.TW': '統一超',
         '5903.TWO': '全家'
     }
@@ -72,7 +72,7 @@ def fetch_all_data():
     except:
         pass
 
-    # --- 新聞部分 (鎖定食力、經濟、數位時代) ---
+    # --- 新聞部分 ---
     news_entries = []
     try:
         query = "site:foodnext.net OR site:money.udn.com OR site:bnext.com.tw"
@@ -102,19 +102,20 @@ with col_main:
         for i, (name, rate) in enumerate(items):
             cols[i].metric(name, f"{rate:.4f}")
     
-    # 食品與零售標竿股價 (擴展至 7 家)
-    st.subheader("🏢 食品零售標竿企業股價")
+    # 產業標竿股價 (完美的 4x2 矩陣)
+    st.subheader("🏢 食品生技與零售標竿股價")
     if stocks_dict:
-        # 分成兩排：第一排 4 家，第二排 3 家
         keys = list(stocks_dict.keys())
+        # 第一排 4 家
         s_cols1 = st.columns(4)
         for i in range(4):
             name = keys[i]
             price, change = stocks_dict[name]
             s_cols1[i].metric(name, f"{price:.2f}", f"{change:+.2f}")
             
-        s_cols2 = st.columns(4) # 預留空間保持整齊
-        for i in range(4, len(keys)):
+        # 第二排 4 家
+        s_cols2 = st.columns(4)
+        for i in range(4, 8):
             name = keys[i]
             price, change = stocks_dict[name]
             s_cols2[i-4].metric(name, f"{price:.2f}", f"{change:+.2f}")
