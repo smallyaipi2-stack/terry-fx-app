@@ -4,12 +4,12 @@ import pandas as pd
 import yfinance as yf
 import feedparser
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. 網頁基本設定
 st.set_page_config(page_title="Terry的換匯小工具", page_icon="📈", layout="wide")
 
-# CSS 樣式修正：美化指標與進度條
+# CSS 樣式修正
 st.markdown("""
     <style>
     .stMetric {
@@ -20,16 +20,21 @@ st.markdown("""
         border: 1px solid var(--border-color);
     }
     .status-box {
-        padding: 15px;
+        padding: 12px;
         border-radius: 8px;
         border-left: 5px solid #00A650;
         background-color: var(--secondary-background-color);
         margin-bottom: 10px;
     }
+    .time-label {
+        font-size: 12px;
+        color: gray;
+        margin-bottom: 2px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 資料抓取邏輯 (快取 10 分鐘)
+# 2. 資料抓取邏輯
 @st.cache_data(ttl=600)
 def fetch_all_data():
     rates = {'台幣 (TWD)': 1.0}
@@ -110,85 +115,108 @@ with col_main:
     st.divider()
 
     # 第三層：進出口預警
-    with st.expander("🚀 海外佈局：損益預警系統", expanded=True):
-        t_im, t_ex = st.tabs(["📥 進口採購成本", "📤 外銷收益影響"])
+    with st.expander("🚀 海外佈局：進出口損益預警系統", expanded=True):
+        t_im, t_ex = st.tabs(["📥 進口採購成本分析", "📤 外銷收益影響分析"])
         with t_im:
-            st.write("計算匯率波動對海外採購成本的影響。")
             ic1, ic2, ic3 = st.columns(3)
-            with ic1: im_curr = st.selectbox("採購幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=4)
-            with ic2: im_base = st.number_input("基準匯率", value=7.10, format="%.4f")
-            with ic3: im_amt = st.number_input(f"採購金額 ({im_curr})", value=1000000)
+            with ic1: im_curr = st.selectbox("採購幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=4, key="im_c")
+            with ic2: im_base = st.number_input("預算基準", value=7.10, format="%.4f", key="im_b")
+            with ic3: im_amt = st.number_input(f"採購金額 ({im_curr})", value=1000000, key="im_a")
             imp = im_amt * (rates_dict[im_curr] - im_base)
-            if imp > 0: st.error(f"⚠️ 成本預計增加 {imp:,.0f} 元")
-            elif imp < 0: st.success(f"✅ 成本預計節省 {abs(imp):,.0f} 元")
+            if imp > 0: st.error(f"⚠️ 成本增加 {imp:,.0f} 元")
+            elif imp < 0: st.success(f"✅ 成本節省 {abs(imp):,.0f} 元")
         
         with t_ex:
-            st.write("計算匯率波動對外銷收款收益的影響。")
             ec1, ec2, ec3 = st.columns(3)
-            with ec1: ex_curr = st.selectbox("收款幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=6)
-            with ec2: ex_base = st.number_input("預算匯率", value=24.00, format="%.4f")
-            with ec3: ex_amt = st.number_input(f"預計收款 ({ex_curr})", value=500000)
+            with ec1: ex_curr = st.selectbox("收款幣別", [n for n in rates_dict.keys() if n != '台幣 (TWD)'], index=6, key="ex_c")
+            with ec2: ex_base = st.number_input("結算基準", value=24.00, format="%.4f", key="ex_b")
+            with ec3: ex_amt = st.number_input(f"收匯金額 ({ex_curr})", value=500000, key="ex_a")
             exp_imp = ex_amt * (rates_dict[ex_curr] - ex_base)
-            if exp_imp > 0: st.success(f"✅ 收益預計增加 {exp_imp:,.0f} 元")
-            elif exp_imp < 0: st.error(f"⚠️ 收益預計縮水 {abs(exp_imp):,.0f} 元")
+            if exp_imp > 0: st.success(f"✅ 收益增加 {exp_imp:,.0f} 元")
+            elif exp_imp < 0: st.error(f"⚠️ 收益縮水 {abs(exp_imp):,.0f} 元")
 
     st.divider()
 
-    # 第四層：標竿股價
-    st.subheader("🏢 食品與零售標竿股價")
+    # 第四層：食品與零售標竿股價 (4x2 完美矩陣)
+    st.subheader("🏢 食品生技與零售標竿股價")
     if stocks_dict:
         keys = list(stocks_dict.keys())
         s1 = st.columns(4)
-        for i in range(min(4, len(keys))):
-            name = keys[i]
-            p, c = stocks_dict[name]
-            s1[i].metric(name, f"{p:.2f}", f"{c:+.2f}")
+        for i in range(4):
+            n = keys[i]
+            p, c = stocks_dict[n]
+            s1[i].metric(n, f"{p:.2f}", f"{c:+.2f}")
         s2 = st.columns(4)
-        for i in range(4, min(8, len(keys))):
-            name = keys[i]
-            p, c = stocks_dict[name]
-            s2[i-4].metric(name, f"{p:.2f}", f"{c:+.2f}")
+        for i in range(4, 8):
+            n = keys[i]
+            p, c = stocks_dict[n]
+            s2[i-4].metric(n, f"{p:.2f}", f"{c:+.2f}")
 
-# --- 右側欄位修正：填補空白並加入戰略指標 ---
+# --- 右側：戰略看板 ---
 with col_right:
+    # 1. 2033 上市倒數
+    st.subheader("🚀 願景里程碑")
+    days_left = (datetime(2033, 1, 1) - datetime.now()).days
+    st.markdown(f"""
+    <div class="status-box">
+        <b>2033 上市目標倒數</b><br>
+        <span style="font-size: 22px; color: #00A650;">{days_left:,} 天</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+
+    # 2. 2026 營收進度 (加入手動輸入功能) [cite: 2026-01-20]
+    st.subheader("🎯 營收達標看板")
+    # 讓執行長可直接在 UI 修改數據
+    revenue_input = st.number_input("目前營收金額 (TWD)", value=3800000, step=100000)
+    date_input = st.text_input("數據統計截至日期", value="2026-01-19")
+    
+    target_150m = 150000000
+    prog = min(revenue_input / target_150m, 1.0)
+    st.progress(prog)
+    st.markdown(f"<small>進度: {prog:.2%} | <b>{date_input} 營收概算</b></small>", unsafe_allow_html=True)
+    st.caption(f"已達成 {revenue_input/1000000:.2f}M / 150M")
+
+    st.divider()
+    
+    # 3. 海外市場狀態 (新增洛杉磯與東京) [cite: 2026-01-20]
+    st.subheader("🌍 海外市場狀態")
+    now_tw = datetime.now()
+    
+    # 時間計算
+    time_jp = now_tw + timedelta(hours=1) # 東京 UTC+9
+    time_la = now_tw - timedelta(hours=16) # 洛杉磯 UTC-8 (冬令時間)
+    
+    def get_status(h): return "營運中" if 9 <= h <= 18 else "休息中"
+
+    st.markdown(f"""
+    <div style='margin-bottom: 8px;'>
+        <div class='time-label'>台北 / 新加坡 / 吉隆坡</div>
+        <b>{now_tw.strftime('%H:%M')}</b> <small>({get_status(now_tw.hour)})</small>
+    </div>
+    <div style='margin-bottom: 8px;'>
+        <div class='time-label'>東京 (TYO)</div>
+        <b>{time_jp.strftime('%H:%M')}</b> <small>({get_status(time_jp.hour)})</small>
+    </div>
+    <div style='margin-bottom: 8px;'>
+        <div class='time-label'>洛杉磯 (LAX)</div>
+        <b>{time_la.strftime('%H:%M')}</b> <small>({get_status(time_la.hour)})</small>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # 4. 產業商報
     st.subheader("📰 產業商報")
     if news_list:
         for entry in news_list:
             clean_t = entry.title.split(" - ")[0]
-            st.markdown(f"<div style='padding:5px; border-bottom:1px solid var(--border-color);'><a href='{entry.link}' target='_blank' style='text-decoration:none; font-size:13px; font-weight:bold; color:#2563eb;'>{clean_t}</a></div>", unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # 新增：執行長戰略看板
-    st.subheader("🚀 執行長戰略指標")
-    
-    # 1. 2033 上市倒數
-    target_date = datetime(2033, 1, 1)
-    days_left = (target_date - datetime.now()).days
-    st.markdown(f"""
-    <div class="status-box">
-        <b>2033 上市目標倒數</b><br>
-        <span style="font-size: 20px; color: #00A650;">{days_left:,} 天</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 2. 2026 營收目標進度 (1.5 億)
-    st.write("🎯 **2026 營收達標進度 (目標 1.5 億)**")
-    current_revenue = 45000000  # 此處為模擬數據，執行長未來可串接財務報表
-    revenue_target = 150000000
-    progress = min(current_revenue / revenue_target, 1.0)
-    st.progress(progress)
-    st.caption(f"目前進度: {progress:.1%} (已達成 {current_revenue/1000000:.1f}M / 150M)")
-    
-    # 3. 海外市場狀態
-    st.write("🌍 **市場營運狀態**")
-    t_kl = datetime.now().strftime("%H:%M")
-    st.caption(f"台北 / 吉隆坡 / 新加坡：{t_kl} (營運中)")
+            st.markdown(f"<div style='padding:4px 0; border-bottom:1px solid #eee;'><a href='{entry.link}' target='_blank' style='text-decoration:none; font-size:13px; color:#2563eb;'>{clean_t}</a></div>", unsafe_allow_html=True)
 
 st.divider()
-# 多幣別對照矩陣
 st.subheader("📋 多幣別對照矩陣 (Cross Rates)")
 if rates_dict:
     matrix_c = list(rates_dict.keys())
-    matrix_data = [[round(rates_dict[row] / rates_dict[col], 4) for col in matrix_c] for row in matrix_c]
-    st.dataframe(pd.DataFrame(matrix_data, index=matrix_c, columns=matrix_c), use_container_width=True)
+    m_data = [[round(rates_dict[r] / rates_dict[c], 4) for c in matrix_c] for r in matrix_c]
+    st.dataframe(pd.DataFrame(m_data, index=matrix_c, columns=matrix_c), use_container_width=True)
