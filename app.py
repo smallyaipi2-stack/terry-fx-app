@@ -11,19 +11,17 @@ from datetime import datetime, timedelta
 # 1. 網頁基本設定 [cite: 2025-08-10]
 st.set_page_config(page_title="Terry戰情室", page_icon="📈", layout="wide")
 
-# 定義常數與目標 (1.4億)
+# 定義常數與路徑
 DATA_FILE = "revenue_persistence.csv"
 TARGET_TOTAL = 140000000
 
-# 2. 數據持久化功能 (修正讀取邏輯)
+# 2. 記憶功能函數
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
-            df = pd.read_csv(DATA_FILE)
-            # 確保格式統一
-            df["月份"] = [f"{i:02d}月" for i in range(1, 13)]
-            return df
+            return pd.read_csv(DATA_FILE)
         except: pass
+    # 初始預設數據 (使用 float 確保計算兼容性)
     return pd.DataFrame({
         "月份": [f"{i:02d}月" for i in range(1, 13)],
         "業績目標 (TWD)": [float(round(TARGET_TOTAL/12, 0))] * 12,
@@ -32,7 +30,7 @@ def load_data():
 
 def save_data(df):
     df.to_csv(DATA_FILE, index=False)
-    st.success("✅ 戰情數據已永久存入記憶體！")
+    st.success("✅ 數據已成功存入記憶體！")
 
 # 初始化 session_state
 if 'revenue_data' not in st.session_state:
@@ -148,16 +146,16 @@ with tab1:
         
         st.divider()
         st.subheader("🎯 營收達成率 (目標 1.4 億)")
-        curr_total = st.session_state.revenue_data["實際營收 (TWD)"].sum()
-        st.metric("目前累計營收 (TWD)", f"{curr_total:,.0f}")
+        total_a_rev = st.session_state.revenue_data["實際營收 (TWD)"].sum()
+        st.metric("目前累計營收 (TWD)", f"{total_a_rev:,.0f}")
         
         dt_now = datetime.now(); dy_idx = dt_now.timetuple().tm_yday
         is_l = (dt_now.year % 4 == 0 and dt_now.year % 100 != 0) or (dt_now.year % 400 == 0)
         exp_p = dy_idx / (366 if is_l else 365)
-        act_p = min(curr_total / TARGET_TOTAL, 1.0)
+        act_p = min(total_a_rev / TARGET_TOTAL, 1.0)
         st.progress(act_p)
-        sc = '#00A650' if act_p >= exp_p else '#d32f2f'
-        st.markdown(f"<div class='comparison-box' style='border-left:5px solid {sc};'>實際達成: <b>{act_p:.2%}</b><br>時間進度: {exp_p:.2%}</div>", unsafe_allow_html=True)
+        s_color = '#00A650' if act_p >= exp_p else '#d32f2f'
+        st.markdown(f"<div class='comparison-box' style='border-left:5px solid {s_color};'>實際達成: <b>{act_p:.2%}</b><br>時間進度: {exp_p:.2%}</div>", unsafe_allow_html=True)
         
         st.divider()
         st.subheader("🌍 全球時間")
@@ -171,27 +169,27 @@ with tab1:
         st.subheader("📰 產業商報")
         for ne in news_list: st.markdown(f"<div style='font-size:13px; margin-bottom:5px;'><a href='{ne.link}' target='_blank'>{ne.title.split(' - ')[0]}</a></div>", unsafe_allow_html=True)
 
-# --- Tab 2: 年度業績規劃 (修復輸入報錯) ---
+# --- Tab 2: 年度業績規劃 (修正輸入格式與達成率顯示) ---
 with tab2:
     st.header("📅 年度業績規劃與追蹤")
-    st.write("請輸入各月數據。系統會自動顯示千分位，修改後請點擊儲存 [cite: 2026-01-20]。")
+    st.write("請輸入各月數據。系統會自動顯示千分位，修改後請點擊儲存。")
     
     c_edit, c_save = st.columns([3, 1])
     
     with c_edit:
-        # 修改為標準 Streamlit 數字列設定，避免 sprintf 錯誤
+        # 1. 輸入表格：使用 "%,.0f" (浮點數+千分位+無小數) 解決 sprintf 報錯
         edited_df = st.data_editor(
             st.session_state.revenue_data, 
             use_container_width=True, 
             hide_index=True, 
             height=475,
             column_config={
-                "業績目標 (TWD)": st.column_config.NumberColumn(format="%.0f"),
-                "實際營收 (TWD)": st.column_config.NumberColumn(format="%.0f")
+                "業績目標 (TWD)": st.column_config.NumberColumn(format="%,.0f"),
+                "實際營收 (TWD)": st.column_config.NumberColumn(format="%,.0f")
             },
-            key="revenue_editor_v2"
+            key="revenue_editor_v3"
         )
-        # 即時數據更新
+        # 確保資料更新
         st.session_state.revenue_data = edited_df
 
     with c_save:
@@ -199,15 +197,15 @@ with tab2:
             save_data(edited_df)
             st.rerun()
         st.divider()
-        total_sum = edited_df["實際營收 (TWD)"].sum()
-        st.metric("年度總實績", f"{total_sum:,.0f}")
-        st.metric("年度總達成率", f"{(total_sum/TARGET_TOTAL):.2%}")
+        sum_actual = edited_df["實際營收 (TWD)"].sum()
+        st.metric("年度總實績", f"{sum_actual:,.0f}")
+        st.metric("年度總達成率", f"{(sum_actual/TARGET_TOTAL):.2%}")
 
     st.divider()
     
-    # 計算顯示與圖表用的 Dataframe
+    # 計算 Dataframe (包含達成率)
     calc_df = edited_df.copy()
-    calc_df["達成率 (%)"] = (calc_df["實際營收 (TWD)"] / calc_df["業績目標 (TWD)"] * 100).round(2).fillna(0)
+    calc_df["達成率 (%)"] = (calc_df["實際營收 (TWD)"] / calc_df["業績目標 (TWD)"] * 100).fillna(0)
     
     c_chart1, c_chart2 = st.columns([2.5, 1])
     with c_chart1:
@@ -224,7 +222,13 @@ with tab2:
 
     with c_chart2:
         st.subheader("🎯 目標達成分析")
-        disp_df = calc_df[["月份", "達成率 (%)"]].copy()
-        # 格式化顯示到小數點後兩位
-        disp_df["達成率 (%)"] = disp_df["達成率 (%)"].map('{:,.2%}'.format).apply(lambda x: x.replace('%','')) + '%'
-        st.table(disp_df)
+        # 2. 顯示表格：使用 dataframe 與 column_config 強制鎖定小數點後兩位
+        st.dataframe(
+            calc_df[["月份", "達成率 (%)"]],
+            use_container_width=True,
+            hide_index=True,
+            height=475,
+            column_config={
+                "達成率 (%)": st.column_config.NumberColumn(format="%.2f%%")
+            }
+        )
